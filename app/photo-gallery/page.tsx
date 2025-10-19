@@ -5,51 +5,63 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Upload, Trash2 } from "lucide-react"
-
-interface PhotoItem {
-  id: string
-  url: string
-  caption: string
-}
+import { ArrowLeft, Upload } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import PhotoShowcase from "@/components/photo-showcase"
 
 export default function PhotoGalleryPage() {
-  const [photos, setPhotos] = useState<PhotoItem[]>([])
   const [caption, setCaption] = useState("")
+  const [logId, setLogId] = useState<string>("")
+  const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const supabase = createClient()
 
   useEffect(() => {
-    const savedPhotos = localStorage.getItem("galleryPhotos")
-    if (savedPhotos) {
-      setPhotos(JSON.parse(savedPhotos))
+    const params = new URLSearchParams(window.location.search)
+    const urlLogId = params.get("logId")
+    if (urlLogId) {
+      setLogId(urlLogId)
+    } else {
+      setLogId(`log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
     }
   }, [])
 
-  const savePhotosToStorage = (updatedPhotos: PhotoItem[]) => {
-    localStorage.setItem("galleryPhotos", JSON.stringify(updatedPhotos))
-  }
-
-  const handleFileSelect = (files: FileList | null) => {
+  const handleFileSelect = async (files: FileList | null) => {
     if (!files) return
 
-    Array.from(files).forEach((file) => {
+    for (const file of Array.from(files)) {
       if (file.type.startsWith("image/")) {
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          const newPhoto: PhotoItem = {
-            id: `${Date.now()}-${Math.random()}`,
-            url: e.target?.result as string,
+        try {
+          setIsUploading(true)
+          setError("")
+
+          const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const { data, error: uploadError } = await supabase.storage.from("photos").upload(`gallery/${fileName}`, file)
+
+          if (uploadError) throw uploadError
+
+          const { data: publicUrlData } = supabase.storage.from("photos").getPublicUrl(`gallery/${fileName}`)
+
+          const { error: dbError } = await supabase.from("photos").insert({
             caption: caption || "Untitled Photo",
-          }
-          const updatedPhotos = [...photos, newPhoto]
-          setPhotos(updatedPhotos)
-          savePhotosToStorage(updatedPhotos)
+            image_url: publicUrlData.publicUrl,
+          })
+
+          if (dbError) throw dbError
+
           setCaption("")
+          setRefreshKey((prev) => prev + 1)
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to upload photo")
+        } finally {
+          setIsUploading(false)
         }
-        reader.readAsDataURL(file)
       }
-    })
+    }
   }
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -65,12 +77,6 @@ export default function PhotoGalleryPage() {
     e.preventDefault()
     setIsDragging(false)
     handleFileSelect(e.dataTransfer.files)
-  }
-
-  const deletePhoto = (id: string) => {
-    const updatedPhotos = photos.filter((p) => p.id !== id)
-    setPhotos(updatedPhotos)
-    savePhotosToStorage(updatedPhotos)
   }
 
   return (
@@ -95,91 +101,71 @@ export default function PhotoGalleryPage() {
         <div className="max-w-2xl mx-auto space-y-6">
           <h2 className="font-serif text-xl font-semibold text-foreground">Upload New Photo</h2>
 
-          {/* Drag and Drop Zone */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-              isDragging ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
-            }`}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={(e) => handleFileSelect(e.target.files)}
-              className="hidden"
-            />
-            <div className="flex flex-col items-center gap-3">
-              <Upload className="w-8 h-8 text-muted-foreground" />
-              <div>
-                <p className="font-serif font-semibold text-foreground">Drop photos here or click to upload</p>
-                <p className="font-serif text-sm text-muted-foreground">PNG, JPG, GIF up to 10MB</p>
+          <form className="space-y-6">
+            <input type="hidden" name="logId" value={logId} />
+            <input type="hidden" name="mediaType" value="photo" />
+
+            {/* Drag and Drop Zone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                isDragging ? "border-accent bg-accent/5" : "border-border hover:border-accent/50"
+              }`}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={(e) => handleFileSelect(e.target.files)}
+                className="hidden"
+                disabled={isUploading}
+              />
+              <div className="flex flex-col items-center gap-3">
+                <Upload className="w-8 h-8 text-muted-foreground" />
+                <div>
+                  <p className="font-serif font-semibold text-foreground">Drop photos here or click to upload</p>
+                  <p className="font-serif text-sm text-muted-foreground">PNG, JPG, GIF up to 10MB</p>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Caption Input */}
-          <div className="space-y-3">
-            <label className="font-serif text-sm font-semibold text-foreground">Photo Caption</label>
-            <input
-              type="text"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="Add a caption for this photo..."
-              className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
-            />
-          </div>
+            {/* Caption Input */}
+            <div className="space-y-3">
+              <label className="font-serif text-sm font-semibold text-foreground">Photo Caption</label>
+              <input
+                type="text"
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder="Add a caption for this photo..."
+                className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                disabled={isUploading}
+              />
+            </div>
 
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground font-serif py-6"
-          >
-            <Upload className="w-4 h-4 mr-2" />
-            Select Photo
-          </Button>
+            {error && <p className="text-sm text-destructive font-serif">{error}</p>}
+
+            <Button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground font-serif py-6"
+            >
+              <Upload className="w-4 h-4 mr-2" />
+              {isUploading ? "Uploading..." : "Select Photo"}
+            </Button>
+          </form>
         </div>
       </section>
 
       {/* Gallery Section */}
       <section className="px-4 py-12 md:py-16">
         <div className="max-w-6xl mx-auto">
-          {photos.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="font-serif text-muted-foreground text-lg">
-                No photos yet. Upload your first photo to get started.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <h2 className="font-serif text-xl font-semibold text-foreground">Gallery ({photos.length})</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {photos.map((photo) => (
-                  <div key={photo.id} className="group relative">
-                    <div className="relative w-full aspect-square rounded-lg overflow-hidden bg-card border border-border">
-                      <img
-                        src={photo.url || "/placeholder.svg"}
-                        alt={photo.caption}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-                        <button
-                          onClick={() => deletePhoto(photo.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground rounded-full p-2 hover:bg-destructive/90"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="font-serif text-sm text-foreground mt-3 font-semibold">{photo.caption}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <h2 className="font-serif text-xl font-semibold text-foreground mb-6">Gallery</h2>
+          <PhotoShowcase key={refreshKey} />
         </div>
       </section>
     </main>

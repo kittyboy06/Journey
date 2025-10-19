@@ -3,71 +3,63 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Trash2 } from "lucide-react"
-
-interface Song {
-  id: string
-  spotifyUrl: string
-  title: string
-  artist: string
-}
+import { ArrowLeft } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import LikedSongsDisplay from "@/components/liked-songs-display"
 
 export default function LikedSongsPage() {
-  const [songs, setSongs] = useState<Song[]>([])
   const [spotifyUrl, setSpotifyUrl] = useState("")
+  const [title, setTitle] = useState("")
+  const [artist, setArtist] = useState("")
+  const [logId, setLogId] = useState<string>("")
   const [error, setError] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const supabase = createClient()
 
   useEffect(() => {
-    const savedSongs = localStorage.getItem("likedSongs")
-    if (savedSongs) {
-      setSongs(JSON.parse(savedSongs))
+    const params = new URLSearchParams(window.location.search)
+    const urlLogId = params.get("logId")
+    if (urlLogId) {
+      setLogId(urlLogId)
+    } else {
+      setLogId(`log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
     }
   }, [])
 
-  const saveSongsToStorage = (updatedSongs: Song[]) => {
-    localStorage.setItem("likedSongs", JSON.stringify(updatedSongs))
-  }
-
-  const extractSpotifyInfo = (url: string) => {
-    // Extract track ID from Spotify URL
-    const match = url.match(/track\/([a-zA-Z0-9]+)/)
-    if (match) {
-      return match[1]
-    }
-    return null
-  }
-
-  const handleSaveSong = () => {
+  const handleSaveSong = async () => {
     if (!spotifyUrl.trim()) {
       setError("Please enter a Spotify URL")
       return
     }
 
-    const trackId = extractSpotifyInfo(spotifyUrl)
-    if (!trackId) {
-      setError("Invalid Spotify URL. Please use a valid track link.")
+    if (!title.trim() || !artist.trim()) {
+      setError("Please enter song title and artist name")
       return
     }
 
-    // Parse title and artist from URL or use defaults
-    const newSong: Song = {
-      id: `${Date.now()}-${Math.random()}`,
-      spotifyUrl,
-      title: "Song Title",
-      artist: "Artist Name",
+    try {
+      setIsLoading(true)
+      setError("")
+
+      const { error: dbError } = await supabase.from("songs").insert({
+        title: title.trim(),
+        artist: artist.trim(),
+        spotify_embed_url: spotifyUrl.trim(),
+      })
+
+      if (dbError) throw dbError
+
+      setSpotifyUrl("")
+      setTitle("")
+      setArtist("")
+      setRefreshKey((prev) => prev + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save song")
+    } finally {
+      setIsLoading(false)
     }
-
-    const updatedSongs = [...songs, newSong]
-    setSongs(updatedSongs)
-    saveSongsToStorage(updatedSongs)
-    setSpotifyUrl("")
-    setError("")
-  }
-
-  const deleteSong = (id: string) => {
-    const updatedSongs = songs.filter((s) => s.id !== id)
-    setSongs(updatedSongs)
-    saveSongsToStorage(updatedSongs)
   }
 
   return (
@@ -92,9 +84,48 @@ export default function LikedSongsPage() {
         <div className="max-w-2xl mx-auto space-y-6">
           <h2 className="font-serif text-xl font-semibold text-foreground">Add a Song</h2>
 
-          <div className="space-y-3">
-            <label className="font-serif text-sm font-semibold text-foreground">Spotify Embed URL</label>
-            <div className="flex gap-2">
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleSaveSong()
+            }}
+          >
+            <input type="hidden" name="logId" value={logId} />
+            <input type="hidden" name="mediaType" value="liked_song" />
+
+            <div className="space-y-2">
+              <label className="font-serif text-sm font-semibold text-foreground">Song Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value)
+                  setError("")
+                }}
+                placeholder="Enter song title..."
+                className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="font-serif text-sm font-semibold text-foreground">Artist Name</label>
+              <input
+                type="text"
+                value={artist}
+                onChange={(e) => {
+                  setArtist(e.target.value)
+                  setError("")
+                }}
+                placeholder="Enter artist name..."
+                className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="font-serif text-sm font-semibold text-foreground">Spotify Embed URL</label>
               <input
                 type="url"
                 value={spotifyUrl}
@@ -103,66 +134,29 @@ export default function LikedSongsPage() {
                   setError("")
                 }}
                 placeholder="Paste Spotify track URL..."
-                className="flex-1 px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
+                disabled={isLoading}
               />
-              <Button
-                onClick={handleSaveSong}
-                className="bg-secondary hover:bg-secondary/90 text-secondary-foreground font-serif px-6"
-              >
-                Save Song
-              </Button>
             </div>
+
             {error && <p className="text-sm text-destructive font-serif">{error}</p>}
-          </div>
+
+            <Button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-secondary hover:bg-secondary/90 text-secondary-foreground font-serif py-6"
+            >
+              {isLoading ? "Saving..." : "Save Song"}
+            </Button>
+          </form>
         </div>
       </section>
 
       {/* Songs List Section */}
       <section className="px-4 py-12 md:py-16">
         <div className="max-w-2xl mx-auto">
-          {songs.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="font-serif text-muted-foreground text-lg">
-                No songs yet. Add your first song to get started.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <h2 className="font-serif text-xl font-semibold text-foreground">Your Songs ({songs.length})</h2>
-              <div className="space-y-4">
-                {songs.map((song) => (
-                  <div
-                    key={song.id}
-                    className="p-4 rounded-lg border border-border bg-card/50 hover:bg-card transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 space-y-2">
-                        <p className="font-serif font-semibold text-foreground">{song.title}</p>
-                        <p className="font-serif text-sm text-muted-foreground">{song.artist}</p>
-                      </div>
-                      <button
-                        onClick={() => deleteSong(song.id)}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-2"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-
-                    {/* Spotify Embed Placeholder */}
-                    <div
-                      className="mt-4 bg-muted/30 rounded-lg border border-border flex items-center justify-center"
-                      style={{ height: "152px" }}
-                    >
-                      <div className="text-center">
-                        <p className="font-serif text-sm text-muted-foreground">Spotify Embed</p>
-                        <p className="font-serif text-xs text-muted-foreground mt-1">152px height</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <h2 className="font-serif text-xl font-semibold text-foreground mb-6">Your Songs</h2>
+          <LikedSongsDisplay key={refreshKey} />
         </div>
       </section>
     </main>

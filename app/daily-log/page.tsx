@@ -7,6 +7,7 @@ import { MoodAnalyzer } from "@/components/mood-analyzer"
 import { ArrowLeft, Save } from "lucide-react"
 
 export default function DailyLogPage() {
+  const [logId, setLogId] = useState<string>("")
   const [title, setTitle] = useState("")
   const [logDate, setLogDate] = useState("")
   const [content, setContent] = useState("")
@@ -16,6 +17,13 @@ export default function DailyLogPage() {
     question: string
   } | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+
+  const initializeLogId = () => {
+    if (!logId) {
+      const newLogId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      setLogId(newLogId)
+    }
+  }
 
   const handleAiReflectionUpdate = (mood: string, analysis: string) => {
     setAiReflection({
@@ -34,7 +42,7 @@ export default function DailyLogPage() {
     setIsSaving(true)
 
     const entry = {
-      id: Date.now(),
+      id: logId || Date.now(),
       title,
       logDate: logDate || new Date().toISOString().split("T")[0],
       content,
@@ -59,6 +67,7 @@ export default function DailyLogPage() {
     setLogDate("")
     setContent("")
     setAiReflection(null)
+    setLogId("")
   }
 
   return (
@@ -81,6 +90,8 @@ export default function DailyLogPage() {
       {/* Form */}
       <section className="px-4 py-12 md:py-16">
         <div className="max-w-2xl mx-auto space-y-8">
+          <input type="hidden" name="logId" value={logId || ""} onChange={(e) => setLogId(e.target.value)} />
+
           {/* Title Input */}
           <div className="space-y-3">
             <label className="font-serif text-sm font-semibold text-foreground">Title</label>
@@ -88,6 +99,7 @@ export default function DailyLogPage() {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onFocus={initializeLogId}
               placeholder="Give your entry a title..."
               className="w-full px-4 py-3 bg-card border border-border rounded-lg font-serif text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
             />
