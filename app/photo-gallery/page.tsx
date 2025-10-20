@@ -6,8 +6,8 @@ import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Upload } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import PhotoShowcase from "@/components/photo-showcase"
+import { uploadPhoto } from "@/app/actions/upload-photo"
 
 export default function PhotoGalleryPage() {
   const [caption, setCaption] = useState("")
@@ -17,8 +17,6 @@ export default function PhotoGalleryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-
-  const supabase = createClient()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -39,22 +37,18 @@ export default function PhotoGalleryPage() {
           setIsUploading(true)
           setError("")
 
-          const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-          const { data, error: uploadError } = await supabase.storage.from("photos").upload(`gallery/${fileName}`, file)
+          const formData = new FormData()
+          formData.append("file", file)
+          formData.append("caption", caption || "Untitled Photo")
 
-          if (uploadError) throw uploadError
+          const result = await uploadPhoto(formData)
 
-          const { data: publicUrlData } = supabase.storage.from("photos").getPublicUrl(`gallery/${fileName}`)
-
-          const { error: dbError } = await supabase.from("photos").insert({
-            caption: caption || "Untitled Photo",
-            image_url: publicUrlData.publicUrl,
-          })
-
-          if (dbError) throw dbError
-
-          setCaption("")
-          setRefreshKey((prev) => prev + 1)
+          if (result.error) {
+            setError(result.error)
+          } else {
+            setCaption("")
+            setRefreshKey((prev) => prev + 1)
+          }
         } catch (err) {
           setError(err instanceof Error ? err.message : "Failed to upload photo")
         } finally {

@@ -1,11 +1,13 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import LikedSongsDisplay from "@/components/liked-songs-display"
+import { uploadSong } from "@/app/actions/upload-song"
 
 export default function LikedSongsPage() {
   const [spotifyUrl, setSpotifyUrl] = useState("")
@@ -15,8 +17,6 @@ export default function LikedSongsPage() {
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-
-  const supabase = createClient()
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -28,7 +28,9 @@ export default function LikedSongsPage() {
     }
   }, [])
 
-  const handleSaveSong = async () => {
+  const handleSaveSong = async (e: React.FormEvent) => {
+    e.preventDefault()
+
     if (!spotifyUrl.trim()) {
       setError("Please enter a Spotify URL")
       return
@@ -43,18 +45,21 @@ export default function LikedSongsPage() {
       setIsLoading(true)
       setError("")
 
-      const { error: dbError } = await supabase.from("songs").insert({
-        title: title.trim(),
-        artist: artist.trim(),
-        spotify_embed_url: spotifyUrl.trim(),
-      })
+      const formData = new FormData()
+      formData.append("title", title.trim())
+      formData.append("artist", artist.trim())
+      formData.append("spotifyUrl", spotifyUrl.trim())
 
-      if (dbError) throw dbError
+      const result = await uploadSong(formData)
 
-      setSpotifyUrl("")
-      setTitle("")
-      setArtist("")
-      setRefreshKey((prev) => prev + 1)
+      if (result.error) {
+        setError(result.error)
+      } else {
+        setSpotifyUrl("")
+        setTitle("")
+        setArtist("")
+        setRefreshKey((prev) => prev + 1)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save song")
     } finally {
@@ -84,13 +89,7 @@ export default function LikedSongsPage() {
         <div className="max-w-2xl mx-auto space-y-6">
           <h2 className="font-serif text-xl font-semibold text-foreground">Add a Song</h2>
 
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault()
-              handleSaveSong()
-            }}
-          >
+          <form className="space-y-4" onSubmit={handleSaveSong}>
             <input type="hidden" name="logId" value={logId} />
             <input type="hidden" name="mediaType" value="liked_song" />
 

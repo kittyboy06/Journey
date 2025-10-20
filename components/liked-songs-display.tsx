@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Card } from "@/components/ui/card"
 import { Trash2 } from "lucide-react"
+import { deleteSong } from "@/app/actions/delete-song"
 
 interface Song {
   id: string
@@ -17,6 +18,7 @@ export default function LikedSongsDisplay() {
   const [songs, setSongs] = useState<Song[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -38,13 +40,20 @@ export default function LikedSongsDisplay() {
     }
   }
 
-  const deleteSong = async (id: string) => {
+  const handleDeleteSong = async (id: string) => {
     try {
-      const { error } = await supabase.from("songs").delete().eq("id", id)
-      if (error) throw error
-      setSongs(songs.filter((song) => song.id !== id))
+      setDeletingId(id)
+      const result = await deleteSong(id)
+
+      if (result.error) {
+        setError(result.error)
+      } else {
+        setSongs(songs.filter((song) => song.id !== id))
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete song")
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -82,8 +91,9 @@ export default function LikedSongsDisplay() {
               <p className="font-serif text-sm text-muted-foreground truncate">{song.artist}</p>
             </div>
             <button
-              onClick={() => deleteSong(song.id)}
-              className="p-2 hover:bg-muted rounded-full transition-colors flex-shrink-0"
+              onClick={() => handleDeleteSong(song.id)}
+              disabled={deletingId === song.id}
+              className="p-2 hover:bg-muted rounded-full transition-colors flex-shrink-0 disabled:opacity-50"
               aria-label="Delete song"
             >
               <Trash2 className="w-4 h-4 text-destructive" />
